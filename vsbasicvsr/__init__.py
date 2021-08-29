@@ -6,11 +6,11 @@ import vapoursynth as vs
 from .basicvsr_arch import BasicVSR as BVSR
 
 
-def BasicVSR(clip: vs.VideoNode, model: int=0, radius: int=7, tile: int=0, tile_pad: int=10, device_type: str='cuda', device_index: int=0) -> vs.VideoNode:
+def BasicVSR(clip: vs.VideoNode, model: int=0, radius: int=7, tile_x: int=0, tile_y: int=0, tile_pad: int=10, device_type: str='cuda', device_index: int=0) -> vs.VideoNode:
     '''
     BasicVSR: The Search for Essential Components in Video Super-Resolution and Beyond
 
-    Now only x4 is supported.
+    Currently only x4 is supported.
 
     Parameters:
         clip: Clip to process. Only planar format with float sample type of 32 bit depth is supported.
@@ -22,7 +22,9 @@ def BasicVSR(clip: vs.VideoNode, model: int=0, radius: int=7, tile: int=0, tile_
 
         radius: Temporal radius. Interval size is (radius * 2 + 1).
 
-        tile: Tile size, 0 for no tile.
+        tile_x, tile_y: Tile width and height respectively, 0 for no tiling.
+            It's recommended that the input's width and height is divisible by the tile's width and height respectively.
+            Set it to the maximum value that your GPU supports to reduce its impact on the output.
 
         tile_pad: Tile padding.
 
@@ -79,8 +81,8 @@ def BasicVSR(clip: vs.VideoNode, model: int=0, radius: int=7, tile: int=0, tile_
         imgs = imgs.unsqueeze(0).to(device)
 
         with torch.no_grad():
-            if tile > 0:
-                output = tile_process(imgs, tile, tile_pad, model)
+            if tile_x > 0 and tile_y > 0:
+                output = tile_process(imgs, tile_x, tile_y, tile_pad, model)
             else:
                 output = model(imgs)
 
@@ -101,7 +103,7 @@ def tensor_to_frame(t: torch.Tensor, f: vs.VideoFrame) -> vs.VideoFrame:
         np.copyto(np.asarray(fout.get_write_array(plane)), arr[plane, :, :])
     return fout
 
-def tile_process(img: torch.Tensor, tile_size: int, tile_pad: int, model: BVSR) -> torch.Tensor:
+def tile_process(img: torch.Tensor, tile_x: int, tile_y: int, tile_pad: int, model: BVSR) -> torch.Tensor:
     batch, _, channel, height, width = img.shape
     output_height = height * 4
     output_width = width * 4
@@ -109,20 +111,22 @@ def tile_process(img: torch.Tensor, tile_size: int, tile_pad: int, model: BVSR) 
 
     # start with black image
     output = img.new_zeros(output_shape)
-    tiles_x = math.ceil(width / tile_size)
-    tiles_y = math.ceil(height / tile_size)
+
+    tiles_x = math.ceil(width / tile_x)
+    tiles_y = math.ceil(height / tile_y)
 
     # loop over all tiles
     for y in range(tiles_y):
         for x in range(tiles_x):
             # extract tile from input image
-            ofs_x = x * tile_size
-            ofs_y = y * tile_size
+            ofs_x = x * tile_x
+            ofs_y = y * tile_y
+
             # input tile area on total image
             input_start_x = ofs_x
-            input_end_x = min(ofs_x + tile_size, width)
+            input_end_x = min(ofs_x + tile_x, width)
             input_start_y = ofs_y
-            input_end_y = min(ofs_y + tile_size, height)
+            input_end_y = min(ofs_y + tile_y, height)
 
             # input tile area on total image with padding
             input_start_x_pad = max(input_start_x - tile_pad, 0)
@@ -133,9 +137,10 @@ def tile_process(img: torch.Tensor, tile_size: int, tile_pad: int, model: BVSR) 
             # input tile dimensions
             input_tile_width = input_end_x - input_start_x
             input_tile_height = input_end_y - input_start_y
-            tile_idx = y * tiles_x + x + 1
+
             input_tile = img[:, :, :, input_start_y_pad:input_end_y_pad, input_start_x_pad:input_end_x_pad]
 
+            # upscale tile
             output_tile = model(input_tile)
 
             # output tile area on total image
