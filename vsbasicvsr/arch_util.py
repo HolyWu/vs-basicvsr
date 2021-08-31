@@ -129,7 +129,7 @@ def flow_warp(x, flow, interp_mode='bilinear', padding_mode='zeros', align_corne
     _, _, h, w = x.size()
     # create mesh grid
     grid_y, grid_x = torch.meshgrid(torch.arange(0, h).type_as(x), torch.arange(0, w).type_as(x))
-    grid = torch.stack((grid_x, grid_y), 2).float()  # W(x), H(y), 2
+    grid = torch.stack((grid_x, grid_y), 2)  # W(x), H(y), 2
     grid.requires_grad = False
 
     vgrid = grid + flow

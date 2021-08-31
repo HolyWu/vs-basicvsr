@@ -6,7 +6,8 @@ import vapoursynth as vs
 from .basicvsr_arch import BasicVSR as BVSR
 
 
-def BasicVSR(clip: vs.VideoNode, model: int=0, radius: int=7, tile_x: int=0, tile_y: int=0, tile_pad: int=10, device_type: str='cuda', device_index: int=0) -> vs.VideoNode:
+def BasicVSR(clip: vs.VideoNode, model: int=0, radius: int=7, tile_x: int=0, tile_y: int=0, tile_pad: int=10,
+             device_type: str='cuda', device_index: int=0, fp16: bool=False) -> vs.VideoNode:
     '''
     BasicVSR: The Search for Essential Components in Video Super-Resolution and Beyond
 
@@ -29,8 +30,10 @@ def BasicVSR(clip: vs.VideoNode, model: int=0, radius: int=7, tile_x: int=0, til
         tile_pad: Tile padding.
 
         device_type: Device type on which the tensor is allocated. Must be 'cuda' or 'cpu'.
-        
+
         device_index: Device ordinal for the device type.
+
+        fp16: fp16 mode for faster and more lightweight inference on cards with Tensor Cores.
     '''
     if not isinstance(clip, vs.VideoNode):
         raise vs.Error('BasicVSR: this is not a clip')
@@ -56,6 +59,8 @@ def BasicVSR(clip: vs.VideoNode, model: int=0, radius: int=7, tile_x: int=0, til
     if device_type == 'cuda':
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.benchmark = True
+        if fp16:
+            torch.set_default_tensor_type(torch.cuda.HalfTensor)
 
     if model == 0:
         model_name = 'BasicVSR_REDS4.pth'
@@ -79,6 +84,8 @@ def BasicVSR(clip: vs.VideoNode, model: int=0, radius: int=7, tile_x: int=0, til
             imgs.append(frame_to_tensor(clip.get_frame(min(n + i, clip.num_frames - 1))))
         imgs = torch.stack(imgs)
         imgs = imgs.unsqueeze(0).to(device)
+        if fp16:
+            imgs = imgs.half()
 
         with torch.no_grad():
             if tile_x > 0 and tile_y > 0:
@@ -156,6 +163,7 @@ def tile_process(img: torch.Tensor, tile_x: int, tile_y: int, tile_pad: int, mod
             output_end_y_tile = output_start_y_tile + input_tile_height * 4
 
             # put tile into output image
-            output[:, :, output_start_y:output_end_y, output_start_x:output_end_x] = output_tile[:, :, output_start_y_tile:output_end_y_tile, output_start_x_tile:output_end_x_tile]
+            output[:, :, output_start_y:output_end_y, output_start_x:output_end_x] = \
+                output_tile[:, :, output_start_y_tile:output_end_y_tile, output_start_x_tile:output_end_x_tile]
 
     return output
